@@ -1,0 +1,20 @@
+# Secretos y variables locales
+.env
+.env.*
+!.env.example
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Cachés y archivos generados de Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Configuración local de VS Code
+.vscode/
+
+# Archivos generados por notebooks
+.ipynb_checkpoints/
