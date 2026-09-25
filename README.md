@@ -3,7 +3,8 @@
 > **Asignatura:** ISY0101 - Ingeniería de Soluciones con IA  
 > **Evaluación:** Evaluación Parcial N°1 — Diseño de Solución con LLM y RAG  
 > **Organización:** MedisChil S.A. (Distribuidora y Bodega Farmacéutica)  
-> **Caso de Estudio:** Gestión de Almacenamiento, Trazabilidad y Despacho de Productos Farmacéuticos Oficiales (Registro ISP Chile)
+> **Caso de Estudio:** Gestión de Almacenamiento, Trazabilidad y Despacho de Productos Farmacéuticos Oficiales (Registro ISP Chile)  
+> **Modelo LLM:** Google Gemini 3.8 Flash (`gemini-3.8-flash`) con LangChain LCEL
 
 ---
 
@@ -28,8 +29,8 @@ En las bodegas farmacéuticas, el personal operativo comete errores críticos po
 
 | Tipo de Fuente | Origen / Formato | Rol en el Sistema |
 | :--- | :--- | :--- |
-| **Fuente Interna (Estructurada)** | `Productos_farmaceuticos_vigentes_venta_directa.csv` (2.428 registros del ISP, codificación UTF-8 / Latin-1) | Provee N° Registro Sanitario, Nombre Oficial del Producto, Razón Social Titular y Condición de Venta. |
-| **Fuente Externa (No Estructurada)** | Manual Operativo de Bodega (Normas técnicas de vacunas/cadena de frío, ungüentos tópicos y protocolos de despacho) | Indexado semánticamente en base vectorial FAISS con embeddings de OpenAI (`text-embedding-3-small`). |
+| **Fuente Interna (Estructurada)** | `Productos_farmaceuticos_vigentes_venta_directa.csv` (2.428 registros del ISP, codificación UTF-8 / Latin-1) | Provee N° Registro Sanitario, Nombre Oficial del Producto, Razón Social Titular y Condición de Venta mediante búsqueda exacta en Pandas. |
+| **Fuente Externa (No Estructurada)** | Manual Operativo de Bodega (Normas técnicas de vacunas/cadena de frío, ungüentos tópicos y protocolos de despacho) | Indexado semánticamente en base vectorial local FAISS con embeddings de alta velocidad (`all-MiniLM-L6-v2`). |
 
 ---
 
@@ -59,7 +60,7 @@ flowchart TD
 
     subgraph Modulo_Generacion [Módulo de Generación LLM]
         H[Prompt Template Especializado con Roles y Delimitadores]
-        I[ChatOpenAI gpt-4o-mini / Temperature=0]
+        I[ChatGoogleGenerativeAI gemini-3.8-flash / Temperature=0]
         J[StrOutputParser]
         K[Respuesta Final Operativa al Usuario]
     end
@@ -80,9 +81,9 @@ flowchart TD
 
 ### 3.2 Componentes Clave:
 1. **Recuperación Interna (Pandas):** Busca coincidencias exactas o por tokens significativos del registro sanitario o nombre comercial, descartando palabras vacías (*stopwords*).
-2. **Short-Circuit Anti-Alucinación:** Si el producto no existe en el catálogo oficial de la bodega, la consulta **no llega al LLM**, retornando el mensaje de rechazo estricto. Esto ahorra tokens y anula alucinaciones de productos inexistentes.
+2. **Short-Circuit Anti-Alucinación:** Si el producto no existe en el catálogo oficial de la bodega, la consulta **no llega al LLM**, retornando el mensaje de rechazo estricto. Esto ahorra cuota de API y anula alucinaciones de productos inexistentes.
 3. **Recuperación Externa (FAISS Vectorstore):** Recupera las $k=2$ normas técnicas más afines para permitir cruces de condiciones (ej. temperatura de almacenamiento + inspección en despacho de venta directa).
-4. **Generación LCEL:** Encadena `{contexto_inventario, contexto_manual, pregunta} | template_sistema | ChatOpenAI | StrOutputParser` de forma determinista (`temperature=0`).
+4. **Generación LCEL:** Encadena `{contexto_inventario, contexto_manual, pregunta} | template_sistema | ChatGoogleGenerativeAI | StrOutputParser` de forma determinista (`temperature=0`).
 
 ---
 
@@ -100,8 +101,8 @@ El prompt está optimizado para garantizar trazabilidad y consistencia técnica:
 ## 5. Instrucciones de Instalación y Ejecución
 
 ### Prerrequisitos
-- Python 3.10 o superior (recomendado Python 3.11 o 3.12).
-- Clave de API de OpenAI (`OPENAI_API_KEY`).
+- Python 3.10 o superior.
+- Clave de API de Google Gemini (`GOOGLE_API_KEY`), obtenible gratuitamente en Google AI Studio.
 
 ### Paso 1: Clonar el repositorio
 ```bash
@@ -116,7 +117,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-En Linux / macOS:
+En Linux / macOS / Colab:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -130,7 +131,7 @@ pip install -r Requisitos.txt
 ### Paso 4: Configurar variables de entorno
 Crea un archivo `.env` en la raíz del proyecto basándote en `.env.example`:
 ```env
-OPENAI_API_KEY=tu_clave_de_openai_aqui
+GOOGLE_API_KEY=tu_clave_de_gemini_aqui
 ```
 
 ### Paso 5: Ejecutar la solución
@@ -149,19 +150,19 @@ El script incluye un banco de pruebas automáticas en su bloque de ejecución pr
 - **Datos Recuperados:**
   - *Interno:* Registro ISP F-18451/19, titular ABBOTT LABORATORIES DE CHILE LTDA, Condición Venta Directa.
   - *Externo:* Norma Técnica 01 (Cadena de frío 2°C a 8°C, prohibido congelar) y Norma Técnica 03 (Venta directa, verificación de precios y protección contra humedad).
-- **Resultado Esperado:** Respuesta concisa integrando ambas normativas y los datos oficiales.
+- **Resultado:** Respuesta concisa integrando ambas normativas y los datos oficiales.
 
 ### Caso 2: Intento de Consulta de Producto Inexistente (Anti-Alucinación)
 - **Consulta:** *"¿Cuáles son los requisitos de almacenamiento y despacho para el producto inexistente FANTASMIN 500?"*
-- **Resultado Esperado:** Activación del guardrail de validación previa:
+- **Resultado:** Activación del guardrail de validación previa:
   > *"No dispongo de registros oficiales en la bodega para responder a esta operación."*
 
-### Caso 3: Consulta de Tópicos (Ungüento HIPOGLOS)
-- **Consulta:** *"¿Cómo debe almacenarse y despacharse el ungüento HIPOGLOS?"*
+### Caso 3: Consulta de Tópicos (Ungüento BACITOPIC)
+- **Consulta:** *"¿Cómo debe almacenarse y despacharse el ungüento BACITOPIC?"*
 - **Datos Recuperados:**
-  - *Interno:* Registro de ungüento en base ISP.
+  - *Interno:* Registro B-1158/11 BACITOPIC UNGÜENTO DÉRMICO en base ISP.
   - *Externo:* Norma Técnica 02 (temperatura ambiente controlada $\le 25^\circ\text{C}$, estanterías secas, evitar sol) y Norma Técnica 03 (despacho).
-- **Resultado Esperado:** Respuesta coherente y ajustada a la norma de tópicos.
+- **Resultado:** Respuesta coherente y ajustada a la norma de tópicos y venta directa.
 
 ---
 
