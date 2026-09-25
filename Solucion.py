@@ -10,12 +10,17 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-load_dotenv(Path(__file__).with_name(".env"))
+try:
+    BASE_DIR = Path(__file__).resolve().parent
+except NameError:
+    BASE_DIR = Path.cwd()
+
+load_dotenv(BASE_DIR / ".env")
 
 # =====================================================================
 # 1. FUENTE DE DATOS INTERNOS: REGISTRO DE MEDICAMENTOS ISP (IE3)
 # =====================================================================
-RUTA_CSV = Path(__file__).with_name("Productos_farmaceuticos_vigentes_venta_directa.csv")
+RUTA_CSV = BASE_DIR / "Productos_farmaceuticos_vigentes_venta_directa.csv"
 RESPUESTA_SIN_REGISTRO = "No dispongo de registros oficiales en la bodega para responder a esta operación."
 
 
