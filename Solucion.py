@@ -1,4 +1,5 @@
 import os
+import difflib
 import unicodedata
 from pathlib import Path
 from dotenv import load_dotenv
@@ -9,6 +10,16 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
+
+try:
+    from rapidfuzz import fuzz
+    def similitud_cadenas(cadena_a: str, cadena_b: str) -> float:
+        """Calcula similitud de Levenshtein optimizada con RapidFuzz (rango 0.0 a 1.0)."""
+        return fuzz.ratio(cadena_a, cadena_b) / 100.0
+except ImportError:
+    def similitud_cadenas(cadena_a: str, cadena_b: str) -> float:
+        """Fallback estándar utilizando difflib.SequenceMatcher sin dependencias binarias."""
+        return difflib.SequenceMatcher(None, cadena_a, cadena_b).ratio()
 
 try:
     BASE_DIR = Path(__file__).resolve().parent
@@ -66,12 +77,23 @@ PALABRAS_IGNORADAS = {
 }
 
 
+UMBRAL_SIMILITUD_DIFUSA = 0.82  # Tolera 1 error tipográfico en términos clave (Levenshtein)
+
+
 def buscar_datos_producto(pregunta: str) -> str:
-    """Busca un registro por nombre o número de registro sanitario en el inventario oficial."""
+    """
+    Busca un registro por nombre o número de registro sanitario en el inventario oficial.
+    Incorpora una estrategia de validación en dos niveles:
+    1. Fast-Path Determinista: Búsqueda exacta de subcadenas y tokens en Pandas.
+    2. Búsqueda Difusa (Fuzzy Matching): Tolera erratas tipográficas de operarios (distancia de Levenshtein).
+    Si ninguna regla encuentra coincidencia, activa el Guardrail/Short-circuit para proteger el LLM.
+    """
     if df_inventario.empty:
         return RESPUESTA_SIN_REGISTRO
 
     pregunta_normalizada = normalizar(pregunta)
+
+    # 1. Búsqueda exacta determinista
     coincidencias = df_inventario[
         df_inventario.apply(
             lambda fila: (
@@ -86,9 +108,41 @@ def buscar_datos_producto(pregunta: str) -> str:
             axis=1,
         )
     ]
-    if coincidencias.empty:
+    if not coincidencias.empty:
+        return coincidencias.head(5).to_string(index=False)
+
+    # 2. Búsqueda difusa (Fuzzy Matching) para tolerancia a errores tipográficos
+    tokens_consulta = [
+        palabra for palabra in pregunta_normalizada.split()
+        if len(palabra) >= 4 and palabra not in PALABRAS_IGNORADAS
+    ]
+
+    if not tokens_consulta:
         return RESPUESTA_SIN_REGISTRO
-    return coincidencias.head(5).to_string(index=False)
+
+    def coincide_difuso(fila) -> bool:
+        # Comprobar similitud con número de registro
+        reg_norm = normalizar(fila["N° Registro"])
+        for token in tokens_consulta:
+            if similitud_cadenas(token, reg_norm) >= UMBRAL_SIMILITUD_DIFUSA:
+                return True
+
+        # Comprobar similitud palabra a palabra con nombre del producto
+        palabras_producto = [
+            p for p in normalizar(fila["Nombre Producto"]).split()
+            if len(p) >= 4 and p not in PALABRAS_IGNORADAS
+        ]
+        for token in tokens_consulta:
+            for palabra_prod in palabras_producto:
+                if similitud_cadenas(token, palabra_prod) >= UMBRAL_SIMILITUD_DIFUSA:
+                    return True
+        return False
+
+    coincidencias_difusas = df_inventario[df_inventario.apply(coincide_difuso, axis=1)]
+    if not coincidencias_difusas.empty:
+        return coincidencias_difusas.head(5).to_string(index=False)
+
+    return RESPUESTA_SIN_REGISTRO
 
 
 # =====================================================================
@@ -100,15 +154,36 @@ manual_operativo_bodega = [
     "NORMA TÉCNICA 03 (DESPACHO): Todo producto farmacéutico bajo 'Condición de Venta Directa' debe ser verificado visualmente en su rotulación de precios y protegido de la humedad antes de ser cargado al camión de distribución."
 ]
 
+RUTA_FAISS_PERSISTENTE = BASE_DIR / "faiss_index_bodega"
 vectorstore = None
 
 
 def obtener_retriever_manual():
-    """Crea FAISS con embeddings locales solo cuando se realiza una consulta válida."""
+    """
+    Crea o recupera la base vectorial FAISS con persistencia local en disco.
+    Permite desacoplamiento modular para migración hacia motores distribuidos (Qdrant / Pgvector).
+    """
     global vectorstore
     if vectorstore is None:
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        vectorstore = FAISS.from_texts(manual_operativo_bodega, embeddings)
+        # Estrategia de persistencia: recargar desde disco si existe para optimizar latencia
+        if RUTA_FAISS_PERSISTENTE.exists() and (RUTA_FAISS_PERSISTENTE / "index.faiss").exists():
+            try:
+                vectorstore = FAISS.load_local(
+                    str(RUTA_FAISS_PERSISTENTE),
+                    embeddings,
+                    allow_dangerous_deserialization=True
+                )
+            except Exception:
+                vectorstore = FAISS.from_texts(manual_operativo_bodega, embeddings)
+                vectorstore.save_local(str(RUTA_FAISS_PERSISTENTE))
+        else:
+            vectorstore = FAISS.from_texts(manual_operativo_bodega, embeddings)
+            try:
+                vectorstore.save_local(str(RUTA_FAISS_PERSISTENTE))
+            except Exception:
+                pass
+
     return vectorstore.as_retriever(search_kwargs={"k": 2})
 
 
@@ -183,14 +258,15 @@ def ejecutar_consulta_logistica(pregunta_usuario: str):
 # =====================================================================
 if __name__ == "__main__":
     consultas_ejemplo = [
-        "¿Cuál es el protocolo de almacenamiento y la condición de venta para la vacuna INFLUVAC?",
-        "¿Cuáles son los requisitos de almacenamiento y despacho para el producto inexistente FANTASMIN 500?",
-        "¿Cómo debe almacenarse y despacharse el ungüento BACITOPIC?"
+        ("¿Cuál es el protocolo de almacenamiento y la condición de venta para la vacuna INFLUVAC?", "Consulta Válida Multicriterio"),
+        ("¿Cuáles son los requisitos de almacenamiento y despacho para el producto inexistente FANTASMIN 500?", "Guardrail Anti-Alucinación (Producto Inexistente)"),
+        ("¿Cómo debe almacenarse y despacharse el ungüento BACITOPIC?", "Consulta de Producto Tópico"),
+        ("¿Cuál es la condición de venta y cómo almacenar la vacuna INFLUVAQ?", "Validación Previa Difusa (Tolerancia a Errata Tipográfica 'INFLUVAQ' -> 'INFLUVAC')")
     ]
 
-    for idx, consulta in enumerate(consultas_ejemplo, 1):
+    for idx, (consulta, descripcion) in enumerate(consultas_ejemplo, 1):
         print(f"==================================================")
-        print(f"📦 PRUEBA #{idx} - CONSULTA OPERARIO:")
+        print(f"📦 PRUEBA #{idx} [{descripcion}] - CONSULTA OPERARIO:")
         print(f"{consulta}\n")
         respuesta_agente = ejecutar_consulta_logistica(consulta)
         print(f"🤖 RESPUESTA SISTEMA:\n{respuesta_agente}\n")

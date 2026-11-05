@@ -5,3 +5,8 @@ langchain-google-genai>=2.0.0
 sentence-transformers>=3.0.0
 faiss-cpu>=1.8.0
 python-dotenv>=1.0.0
+rapidfuzz>=3.0.0
+
+# Frameworks opcionales para evaluación cuantitativa y motores vectoriales en producción:
+# ragas>=0.1.0
+# qdrant-client>=1.7.0
