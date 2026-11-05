@@ -1,203 +1,201 @@
-# Asistente Inteligente de Logística Farmacéutica con LLM y RAG
+# Asistente Agéntico Inteligente de Logística y Seguridad Farmacéutica
 
 > **Asignatura:** ISY0101 - Ingeniería de Soluciones con IA  
-> **Evaluación:** Evaluación Parcial N°1 — Diseño de Solución con LLM y RAG  
+> **Institución:** Duoc UC  
+> **Integrantes:** Meritxell Arroyo y Matías Barraza  
 > **Organización:** MedisChil S.A. (Distribuidora y Bodega Farmacéutica)  
-> **Caso de Estudio:** Gestión de Almacenamiento, Trazabilidad y Despacho de Productos Farmacéuticos Oficiales (Registro ISP Chile)  
-> **Modelo LLM:** Google Gemini 3.8 Flash (`gemini-3.8-flash`) con LangChain LCEL
+> **Caso de Estudio:** Orquestación Autónoma de Almacenamiento, Trazabilidad, Despacho y Seguridad Sanitaria (Registro ISP Chile y DS N° 466)  
+> **Stack Tecnológico:** Python 3.11, LangGraph, LangChain, Google Gemini 3.8 Flash, Pydantic v2, FAISS, Pandas, RapidFuzz
 
 ---
 
-## 1. Descripción del Caso Organizacional (IE1)
+## 1. Visión General del Proyecto
 
-### 1.1 Contexto de la Organización
-**MedisChil S.A.** es una distribuidora y centro logístico farmacéutico de tamaño mediano que centraliza el almacenamiento y despacho de productos farmacéuticos hacia farmacias, hospitales y consultorios. Su catálogo supera los 2.400 registros vigentes autorizados por el Instituto de Salud Pública de Chile (ISP).
-
-### 1.2 Identificación y Descripción del Problema
-En las bodegas farmacéuticas, el personal operativo comete errores críticos por desconocimiento de las condiciones técnicas de manipulación (rotura de cadena de frío entre 2°C y 8°C, exposición solar o almacenamiento indebido de tópicos a más de 25°C). Además, consultar registros manuales en planillas o sistemas estáticos toma tiempo y no previene la confusión de nombres de fantasía, números de registro sanitario o errores de tipeo en las terminales operativas.
-
-### 1.3 Objetivos de la Intervención
-- **Objetivo General:** Implementar un asistente inteligente basado en LLM y Recuperación Aumentada (RAG) que responda consultas operativas en lenguaje natural en menos de 3 segundos, garantizando un 100% de apego a la normativa sanitaria y catálogo oficial.
-- **Objetivos Específicos (Medibles):**
-  1. Integrar el catálogo oficial del ISP (2.428 registros) como fuente de verdad interna.
-  2. Implementar una base vectorial semántica (FAISS) con persistencia local para las normas técnicas de almacenamiento y despacho.
-  3. Erradicar en un 100% las alucinaciones del modelo mediante un mecanismo de validación previa (*guardrail/short-circuit*) que incorpora **búsqueda difusa (Fuzzy Matching con distancia de Levenshtein)** para tolerar errores tipográficos de operarios.
-  4. Establecer un marco de evaluación cuantitativa del pipeline RAG midiendo fidelidad contextual (*faithfulness*) y relevancia.
+Este repositorio contiene la evolución completa del sistema inteligente para **MedisChil S.A.**:
+1. **Evaluación Parcial N°1 (EV1 - RA1):** Pipeline RAG híbrido determinista/semántico en LCEL con validación previa de stock y guardrails anti-alucinaciones.
+2. **Evaluación Parcial N°2 (EV2 - RA2):** **Agente Funcional Autónomo** construido con **LangGraph** (StateGraph cíclico ReAct), que integra herramientas de consulta estructurada y semántica, razonamiento sanitario, transacciones seguras de escritura (RBAC + Idempotencia UUID v4), doble memoria (STM episódica y LTM vectorial persistente), y toma de decisiones adaptativas ante contingencias térmicas.
 
 ---
 
-## 2. Fuentes de Datos (IE3)
+## 2. Arquitectura de Orquestación del Agente (LangGraph - EP2)
 
-| Tipo de Fuente | Origen / Formato | Rol en el Sistema |
-| :--- | :--- | :--- |
-| **Fuente Interna (Estructurada)** | `Productos_farmaceuticos_vigentes_venta_directa.csv` (2.428 registros del ISP, codificación UTF-8 / Latin-1) | Provee N° Registro Sanitario, Nombre Oficial del Producto, Razón Social Titular y Condición de Venta mediante búsqueda exacta y difusa en Pandas. |
-| **Fuente Externa (No Estructurada)** | Manual Operativo de Bodega (Normas técnicas de vacunas/cadena de frío, ungüentos tópicos y protocolos de despacho) | Indexado semánticamente en base vectorial FAISS con persistencia local y embeddings locales de alta velocidad (`all-MiniLM-L6-v2`). |
-
----
-
-## 3. Arquitectura de la Solución (IE4, IE7)
-
-El sistema combina módulos de **recuperación híbrida**, **procesamiento con validación previa determinista y difusa**, y **generación aumentada** mediante LangChain Expression Language (LCEL).
-
-### 3.1 Diagrama de Arquitectura
+El agente implementa un ciclo de percepción, razonamiento, decisión y acción mediante un **Grafo de Estados Cíclico** (`StateGraph`):
 
 ```mermaid
 flowchart TD
-    subgraph Entrada
-        A[Consulta del Operario en Lenguaje Natural]
+    START([START: Inicio de Consulta/Instrucción]) --> N_MGR[Nodo Razonador Manager\nGemini 3.8 Flash con Tool Binding]
+    
+    N_MGR --> COND{¿Requiere invocar herramientas?\nenrutar_flujo_agente}
+    
+    COND -- Sí: Tool Calls Detectados --> N_TOOLS[Nodo Ejecución de Herramientas\nInvocación Determinista y Manejo de Errores]
+    COND -- No: Decisión/Respuesta Lista --> END_NODE([END: Respuesta Final al Operario])
+    
+    subgraph Herramientas_Disponibles [Catálogo de Herramientas Pydantic v2]
+        T1[1. consultar_catalogo_isp\nConsulta estructurada + Fuzzy Levenshtein]
+        T2[2. consultar_normas_bodega\nLTM FAISS semántico k=2]
+        T3[3. evaluar_viabilidad_transporte\nRazonamiento sanitario DS 466]
+        T4[4. emitir_orden_despacho\nEscritura transaccional RBAC + UUID]
+        T5[5. emitir_acta_cuarentena\nEscritura contingente de bloqueo]
     end
-
-    subgraph Modulo_Procesamiento [Módulo de Procesamiento y Validación Previa]
-        B[Normalización NFKD / Mayúsculas]
-        C{1. Búsqueda Exacta en Catálogo ISP}
-        C2{2. Búsqueda Difusa Levenshtein >= 0.82}
-        G[Respuesta Inmediata Anti-Alucinación:\n'No dispongo de registros oficiales...']
+    
+    N_TOOLS -. Invoca .-> Herramientas_Disponibles
+    Herramientas_Disponibles -. Retorna ToolMessage .-> N_TOOLS
+    N_TOOLS --> N_MGR
+    
+    subgraph Memoria_Persistencia [Sistemas de Memoria y Estado]
+        STM[(STM Episódica: add_messages\nHistorial multi-turno)]
+        LTM[(LTM Semántica: FAISS Disco\nNormas técnicas y manual)]
+        SEC[(Seguridad: Servidor Transaccional\nRBAC + Claves de Idempotencia)]
     end
-
-    subgraph Modulo_Recuperacion [Módulo de Recuperación Híbrida]
-        D[(Fuente Interna: CSV Inventario ISP)]
-        E[(Fuente Externa: FAISS Persistente en Disco)]
-        F[Recuperador Semántico k=2 Normas]
-    end
-
-    subgraph Modulo_Generacion [Módulo de Generación LLM]
-        H[Prompt Template Especializado con Roles y Delimitadores]
-        I[ChatGoogleGenerativeAI gemini-3.8-flash / Temperature=0]
-        J[StrOutputParser]
-        K[Respuesta Final Operativa al Usuario]
-    end
-
-    A --> B
-    B --> C
-    C -- Coincide --> D
-    C -- No Coincide --> C2
-    C2 -- Coincide Difuso --> D
-    C2 -- Rechazado --> G
-    B --> E
-    E --> F
-    D --> H
-    F --> H
-    A --> H
-    H --> I
-    I --> J
-    J --> K
+    
+    N_MGR <--> STM
+    T2 <--> LTM
+    T4 <--> SEC
+    T5 <--> SEC
 ```
 
-### 3.2 Componentes Clave:
-1. **Recuperación Interna en Dos Fases (Pandas + Fuzzy Matching):**
-   - **Fase 1 (Fast-Path Determinista):** Búsqueda de coincidencia exacta por tokens significativos y número de registro sanitario.
-   - **Fase 2 (Tolerancia Tipográfica Difusa):** Si no hay coincidencia exacta, se aplica distancia de Levenshtein (RapidFuzz / `difflib`) con umbral $\ge 0.82$. Esto permite reconocer medicamentos ante errores de tipeo comunes de los operarios (ej. `INFLUVAQ` $\rightarrow$ `INFLUVAC`) sin activar indebidamente el bloqueo.
-2. **Short-Circuit Anti-Alucinación:** Si el producto no existe en el catálogo tras la validación difusa, la consulta **no llega al LLM**, retornando inmediatamente la restricción sanitaria oficial.
-3. **Persistencia Vectorial Local y Roadmap Distribuido (FAISS / Qdrant / Pgvector):**
-   - El índice de normas operativas se guarda de forma persistente en disco local (`faiss_index_bodega`), evitando reconstrucciones costosas en cada arranque y reduciendo la latencia de respuesta a menos de 50 ms.
-   - Para despliegues con concurrencia masiva, el módulo está diseñado para desacoplar el almacén vectorial hacia **Pgvector** (PostgreSQL) o **Qdrant**.
-4. **Generación Aumentada (LCEL):** Encadena `{contexto_inventario, contexto_manual, pregunta} | template_sistema | ChatGoogleGenerativeAI | StrOutputParser` con `temperature=0.0`.
+---
+
+## 3. Catálogo de Herramientas Implementadas (IE1)
+
+Todas las herramientas heredan de `BaseTool` de LangChain y utilizan contratos estrictos con esquemas de `Pydantic v2` (`BaseModel` y `Field`):
+
+| Nombre de Herramienta | Tipo | Esquema Pydantic (`args_schema`) | Descripción Funcional y Reglas Sanitarias |
+| :--- | :---: | :--- | :--- |
+| `consultar_catalogo_isp` | **Consulta** | `ConsultaCatalogoInput` (`termino_busqueda: str`) | Búsqueda en dos niveles: 1) coincidencia exacta por registro sanitario o nombre, y 2) coincidencia difusa (distancia de Levenshtein $\ge 0.82$). Consulta los 2.428 medicamentos vigentes del ISP. |
+| `consultar_normas_bodega` | **Consulta** | `ConsultaNormasInput` (`tipo_o_categoria_medicamento: str`) | Recuperación semántica desde la base vectorial FAISS con persistencia en disco de las directrices de almacenamiento y despacho. |
+| `evaluar_viabilidad_transporte` | **Razonamiento** | `EvaluacionTransporteInput` (`nombre_producto`, `temperatura_camion_c`, `tipo_producto`) | Motor de reglas sanitarias que evalúa si la temperatura del vehículo respeta el rango exigido (Vacunas: 2°C a 8°C; Tópicos: $\le 25^\circ\text{C}$). Detecta roturas térmicas. |
+| `emitir_orden_despacho` | **Escritura Segura** | `EmisionDespachoInput` (`token_rol`, `nombre_producto`, `n_registro`, `cantidad`, `destino`, `temperatura_transporte`, `clave_idempotencia`) | Emite orden oficial en `data_registro_despachos.json` validando privilegios RBAC (`OPERARIO_BODEGA`, `SUPERVISOR_LOGISTICA`, `DIRECTOR_TECNICO`) y unicidad por UUID v4. |
+| `emitir_acta_cuarentena` | **Escritura Segura** | `BloqueoCuarentenaInput` (`token_rol`, `nombre_producto`, `n_registro`, `motivo_incumplimiento`, `temperatura_detectada`, `clave_idempotencia`) | Emite acta sanitaria oficial en `data_bitacora_cuarentena.json`, reteniendo preventivamente el lote y alertando al Director Técnico farmacéutico (Decreto Supremo N° 466). |
 
 ---
 
-## 4. Diseño y Formulación de Prompts (IE2)
+## 4. Arquitectura de Memoria y Continuidad de Contexto (IE3, IE4)
 
-El prompt está optimizado para garantizar trazabilidad y consistencia técnica:
+El agente supera las limitaciones de los sistemas *stateless* implementando una arquitectura de doble memoria:
 
-- **Asignación de Rol:** *"Eres el Asistente Experto en Logística Farmacéutica de la bodega de MedisChil S.A."*
-- **Delimitación de Contexto:** Separadores explícitos que aíslan los datos internos de inventario de las directrices normativas del manual.
-- **Restricción Negativa (Negative Prompting):** Se fuerza al modelo a negarse a responder si el contexto no contiene la información oficial, eliminando lagunas preentrenadas.
-- **Temperatura:** Fijada en `0.0` para garantizar respuestas deterministas y reproducibles.
+### 4.1 Memoria de Corto Plazo Episódica (STM - IE3)
+- **Implementación:** Variable `messages: Annotated[List[BaseMessage], add_messages]` dentro del TypedDict `EstadoAgenteBodega` de LangGraph.
+- **Capacidad:** Mantiene la coherencia contextual en diálogos prolongados, permitiendo referencias anafóricas (ej.: el operario pregunta por *"INFLUVAC"* en el Turno 1 y luego en el Turno 2 dice *"emite un despacho de 50 dosis de esa misma vacuna"* sin repetir el nombre del producto).
+
+### 4.2 Memoria Semántica a Largo Plazo (LTM - IE4)
+- **Implementación:** Almacén vectorial FAISS con persistencia local en disco (`faiss_index_bodega/`) indexado con embeddings locales de alta velocidad (`all-MiniLM-L6-v2`).
+- **Capacidad:** Permite al agente consultar y recuperar semánticamente las directrices del manual técnico de bodega incluso tras reinicios del sistema, optimizando la latencia operacional a menos de 50 ms.
 
 ---
 
-## 5. Instrucciones de Instalación y Ejecución
+## 5. Planificación y Toma de Decisiones Adaptativas (IE5, IE7)
+
+El agente no ejecuta un pipeline estático lineal, sino que **planifica dinámicamente según las condiciones observadas del entorno**:
+
+```mermaid
+flowchart TD
+    A[Recepción de Solicitud Operativa] --> B[1. Consulta Catálogo ISP con Validación Difusa]
+    B --> C{¿Producto Existe en Registro Oficial?}
+    C -- No --> D[SHORT-CIRCUIT: Bloquear Operación\n0% Alucinación - Cero Escrituras]
+    C -- Sí --> E[2. Consulta Normas Técnicas FAISS]
+    E --> F[3. Evaluar Viabilidad de Transporte y Temperatura]
+    F --> G{¿Temperatura Cumple Rango Térmico?}
+    G -- Cumple OK --> H[DECISIÓN A: AUTORIZAR DESPACHO\nInvocación de emitir_orden_despacho\nGeneración de UUID de Idempotencia]
+    G -- Rotura Térmica Detectada --> I[DECISIÓN B ADAPTATIVA: RECHAZAR Y BLOQUEAR\nInvocación de emitir_acta_cuarentena\nAlerta Inmediata a Dirección Técnica]
+```
+
+### Casos de Decisión Adaptativa Demostrables:
+1. **Flujo de Despacho Exitoso:** Vacuna INFLUVAC en furgón a 4.5 °C $\rightarrow$ Cumple rango 2°C a 8°C $\rightarrow$ Emite orden autorizada de carga.
+2. **Contingencia Sanitaria (Adaptación en Caliente):** Vacuna INFLUVAC en furgón a 14 °C $\rightarrow$ Detecta rotura de cadena de frío $\rightarrow$ El agente **cambia de plan autónomamente**, rechaza el despacho y emite el acta oficial de cuarentena preventiva.
+3. **Guardrail Anti-Alucinaciones:** Intento de despacho de fármaco ficticio (`FANTASMIN 500`) $\rightarrow$ Detección inmediata de no-registro $\rightarrow$ Corta el flujo protegiendo la base de datos contra escrituras erróneas.
+
+---
+
+## 6. Justificación Técnica de Componentes y Frameworks (IE2, IE9)
+
+- **LangGraph sobre LangChain Agents tradicional:** LangGraph proporciona grafos de estado cíclicos con transiciones deterministas, control explícito de puntos de decisión y compatibilidad nativa con memorias basadas en `add_messages`, garantizando escalabilidad y depuración auditable.
+- **Google Gemini 3.8 Flash:** Modelo de última generación con latencia reducida (< 1.5 s), soporte nativo de Function Calling estricto y costo de inferencia nulo o altamente eficiente para flujos organizacionales masivos.
+- **Pydantic v2 (`BaseModel`, `Field`):** Garantiza validación de tipos y rangos en tiempo de ejecución (`gt=0`, rangos de temperatura), impidiendo inyecciones de datos anómalos a las herramientas de escritura.
+- **FAISS con Persistencia Local:** Resuelve la latencia de red eliminando la dependencia de servicios vectoriales cloud para normativas de tamaño controlado, manteniendo el desacoplamiento para futuras migraciones a Qdrant o Pgvector.
+- **RBAC + Claves de Idempotencia (UUID v4):** Cumple con los estándares de seguridad transaccional empresarial (ISO/DAMA), previniendo dobles despachos ante reintentos de red.
+
+---
+
+## 7. Instrucciones de Instalación y Ejecución
 
 ### Prerrequisitos
-- Python 3.10 o superior.
-- Clave de API de Google Gemini (`GOOGLE_API_KEY`), obtenible gratuitamente en Google AI Studio.
+- Python 3.10 o 3.11.
+- Clave de API de Google Gemini (`GOOGLE_API_KEY`), configurable en archivo `.env`.
 
-### Paso 1: Clonar el repositorio
+### Paso 1: Clonar el Repositorio
 ```bash
 git clone https://github.com/LarviNa/collab_farmacia.git
 cd collab_farmacia
 ```
 
-### Paso 2: Crear y activar entorno virtual
+### Paso 2: Crear y Activar Entorno Virtual
 En Windows (PowerShell):
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-En Linux / macOS / Colab:
+En Linux / macOS:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### Paso 3: Instalar dependencias
+### Paso 3: Instalar Dependencias
 ```bash
 pip install -r Requisitos.txt
 ```
 
-### Paso 4: Configurar variables de entorno
-Crea un archivo `.env` en la raíz del proyecto basándote en `.env.example`:
+### Paso 4: Configurar Variables de Entorno
+Copia `.env.example` a `.env` y define tu clave de Google Gemini:
 ```env
 GOOGLE_API_KEY=tu_clave_de_gemini_aqui
 ```
 
-### Paso 5: Ejecutar la solución principal
-```bash
-python Solucion.py
+### Paso 5: Ejecución de Componentes
+
+1. **Ejecutar Batería de Pruebas del Agente Funcional (EP2):**
+   ```bash
+   python test_agente_ep2.py
+   ```
+2. **Ejecutar Pipeline RAG de la Entrega 1 (EV1 con Fuzzy Matching):**
+   ```bash
+   python Solucion.py
+   ```
+3. **Ejecutar Evaluación Cuantitativa de Métricas RAG (Ragas Style):**
+   ```bash
+   python evaluacion_rag.py
+   ```
+
+---
+
+## 8. Estructura del Repositorio
+
+```text
+collab_farmacia/
+├── agente_medischil.py              # Agente Funcional oficial EP2 (LangGraph + Tools + Memoria)
+├── test_agente_ep2.py               # Suite de pruebas automatizadas de toma de decisiones adaptativas
+├── Solucion.py                      # Pipeline RAG híbrido EV1 (con Fuzzy Matching y FAISS persistente)
+├── evaluacion_rag.py                # Suite de evaluación cuantitativa RAG (Faithfulness / Relevance)
+├── Productos_farmaceuticos_...csv   # Catálogo oficial ISP de 2.428 registros
+├── data_registro_despachos.json     # Persistencia de órdenes de despacho (Escritura segura)
+├── data_bitacora_cuarentena.json    # Persistencia de actas de bloqueo sanitario (Cuarentena)
+├── auditoria_operacional.log        # Registro de trazabilidad auditable (RotatingFileHandler)
+├── Requisitos.txt                   # Dependencias oficiales del proyecto
+├── README.md                        # Documentación técnica completa y diagramas de arquitectura
+├── EA1.md                           # Documentación de la Fase 1 (RA1)
+└── INFORME_TECNICO_EP2.md           # Borrador estructurado del Informe Técnico de 5 páginas
 ```
 
-### Paso 6: Ejecutar la batería de evaluación cuantitativa (Ragas Style)
-```bash
-python evaluacion_rag.py
-```
-
 ---
 
-## 6. Evidencia de Pruebas de Software (IE6)
+## 9. Declaración Ética y Normativa APA (IE6, IE9)
 
-El script incluye un banco de pruebas automáticas en consola que ratifica el comportamiento del sistema:
-
-### Caso 1: Consulta Válida Multicriterio (Vacuna INFLUVAC)
-- **Consulta:** *"¿Cuál es el protocolo de almacenamiento y la condición de venta para la vacuna INFLUVAC?"*
-- **Datos Recuperados:**
-  - *Interno:* Registro ISP F-18451/19, titular ABBOTT LABORATORIES DE CHILE LTDA, Condición Venta Directa.
-  - *Externo:* Norma Técnica 01 (Cadena de frío 2°C a 8°C, prohibido congelar) y Norma Técnica 03 (Venta directa, verificación de precios y protección contra humedad).
-- **Resultado:** Integra concisamente la normativa térmica y la inspección de despacho.
-
-### Caso 2: Intento de Consulta de Producto Inexistente (Anti-Alucinación)
-- **Consulta:** *"¿Cuáles son los requisitos de almacenamiento y despacho para el producto inexistente FANTASMIN 500?"*
-- **Resultado:** Activación del guardrail de validación previa:
-  > *"No dispongo de registros oficiales en la bodega para responder a esta operación."*
-
-### Caso 3: Consulta de Tópicos (Ungüento BACITOPIC)
-- **Consulta:** *"¿Cómo debe almacenarse y despacharse el ungüento BACITOPIC?"*
-- **Datos Recuperados:**
-  - *Interno:* Registro B-1158/11 BACITOPIC UNGÜENTO DÉRMICO en base ISP.
-  - *Externo:* Norma Técnica 02 (temperatura ambiente controlada $\le 25^\circ\text{C}$, estanterías secas, evitar sol) y Norma Técnica 03 (despacho).
-- **Resultado:** Respuesta coherente y ajustada a la norma de tópicos y venta directa.
-
-### Caso 4: Tolerancia a Errores Tipográficos (Fuzzy Matching con Levenshtein)
-- **Consulta:** *"¿Cuál es la condición de venta y cómo almacenar la vacuna INFLUVAQ?"* (errata en la terminal operativa: `INFLUVAQ` con Q).
-- **Comportamiento del Sistema:** La fase 1 exacta no encuentra coincidencia; se activa la fase 2 de búsqueda difusa ($similitud = 87.5\% \ge 82\%$). El sistema recupera el registro oficial de **INFLUVAC VACUNA ANTI - INFLUENZA** y genera la respuesta técnica sin interrupciones.
-
----
-
-## 7. Evaluación Cuantitativa del Pipeline RAG (Ragas / TruLens Methodology)
-
-Mediante el script `evaluacion_rag.py` se mide de forma automatizada la calidad del sistema:
-
-| Métrica Evaluada | Objetivo Operacional | Resultado Obtenido |
-| :--- | :--- | :---: |
-| **Precisión del Guardrail (Short-Circuit)** | 100% de bloqueo ante fármacos fuera de catálogo | **100%** |
-| **Tolerancia a Erratas (Fuzzy Robustness)** | Recuperar registros con distancia de edición menor a 2 caracteres | **100%** |
-| **Fidelidad Contextual (Faithfulness)** | 0% alucinaciones; 100% fundamentado en normas ISP / bodega | **100%** |
-| **Relevancia de Respuesta (Answer Relevance)** | Coherencia semántica y respuesta a la consulta del operario | **100%** |
-
----
-
-## 8. Declaración Ética y Uso de IA
-
-- **Uso de Herramientas de IA:** Se utilizaron modelos de lenguaje para apoyar la generación de esquemas de documentación y optimización sintáctica de código.
-- **Autoría:** El diseño de la arquitectura, la integración del dataset del ISP, la lógica de validación previa determinista y difusa, la persistencia vectorial y las decisiones técnicas de RAG fueron diseñadas y supervisadas por el equipo de desarrollo.
-- **Citación:** En conformidad con las directrices de Integridad Académica de Duoc UC (https://bibliotecas.duoc.cl/ia).
+- **Uso Ético de IA:** Se utilizaron modelos de IA exclusivamente como apoyo para la optimización de código y diagramas arquitectónicos. Todas las decisiones de diseño de software, esquemas Pydantic, lógica de orquestación y reflexiones personales son de autoría directa de los estudiantes.
+- **Referencias Bibliográficas (APA 7ma Edición):**
+  - Chase, H. (2024). *LangGraph: Building language agents as graphs*. LangChain AI. https://github.com/langchain-ai/langgraph
+  - Google DeepMind. (2024). *Gemini: A family of highly capable multimodal models*. Google Research. https://deepmind.google/technologies/gemini/
+  - Instituto de Salud Pública de Chile. (2024). *Registro Nacional de Productos Farmacéuticos vigentes en Chile*. Ministerio de Salud, Gobierno de Chile. https://www.ispch.gob.cl/
+  - Ministerio de Salud de Chile. (1984). *Decreto Supremo N° 466: Reglamento de farmacias, droguerías, almacenes farmacéuticos y botiquines*. Biblioteca del Congreso Nacional de Chile. https://www.bcn.cl/leychile/navegar?idNorma=12959
+  - Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., & Cao, Y. (2023). *ReAct: Synergizing reasoning and acting in language models*. International Conference on Learning Representations (ICLR). https://doi.org/10.48550/arXiv.2210.03629
