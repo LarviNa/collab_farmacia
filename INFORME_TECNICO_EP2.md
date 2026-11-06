@@ -124,14 +124,14 @@ El agente sigue un esquema de planificación priorizado donde la **seguridad san
 
 🟢 ESCENARIO 1: Flujo Prolongado Multi-Turno y Memoria de Contexto (IE3, IE4, IE1)
 👤 [OPERARIO - Turno 1]: ¿Cuál es el protocolo de almacenamiento y condición de venta para la vacuna INFLUVAC?
-🤖 [AGENTE]: La vacuna INFLUVAC (Registro F-18451/19, Venta Directa) requiere almacenamiento estricto en cadena de frío entre 2°C y 8°C. Prohibido congelar.
+🤖 [AGENTE]: La vacuna INFLUVAC (Registro B-1007/10, Abbott Laboratories de Chile Ltda., Venta Directa) requiere almacenamiento estricto en cadena de frío entre 2°C y 8°C. Prohibido congelar.
 
 👤 [OPERARIO - Turno 2 (Referencia Anafórica)]: El camión N°4 está en 4.5 °C. Emite la orden de despacho para 50 unidades de esa misma vacuna al Hospital Central.
-🤖 [AGENTE]: Verificada temperatura de 4.5°C (dentro de rango 2°C-8°C). Se emitió exitosamente la Orden de Despacho DSP-A4F19B8C para 50 unidades de INFLUVAC hacia el Hospital Central. Clave Idempotencia: 9e8a7c2b-...
+🤖 [AGENTE]: Verificada temperatura de 4.5°C (dentro de rango 2°C-8°C). Se emitió exitosamente la Orden de Despacho DSP-3177B539 para 50 unidades de INFLUVAC hacia el Hospital Central. Clave Idempotencia: c3ad3169-f0aa-4b5f-8472-4b68c7f2d395 (Timestamp UTC: 2026-11-06T01:53:16Z, Rol: OPERARIO_BODEGA).
 
 🔴 ESCENARIO 2: Decisión Adaptativa ante Riesgo Sanitario (IE5, IE7, IE1)
 👤 [SUPERVISOR]: El camión refrigerado falló y la temperatura interior está en 14 °C. Solicito autorizar despacho urgente de 80 dosis de INFLUVAC a Clínica RedSalud.
-🤖 [AGENTE]: ALERTA SANITARIA: Se rechaza el despacho. La temperatura de 14°C quiebra la cadena de frío (2°C a 8°C). Se emitió el Acta de Cuarentena Preventiva CUAR-7B2E10D4 bloqueando el lote en cámara de aislamiento y notificando al Director Técnico (DS N° 466).
+🤖 [AGENTE]: ALERTA SANITARIA: Se rechaza el despacho. La temperatura de 14°C quiebra la cadena de frío (2°C a 8°C). Se emitió el Acta de Cuarentena Preventiva CUAR-4C1A56E9 (Clave Idempotencia: 7bab4878-fef1-4743-b9be-ed7a463ad8ba, Rol: SUPERVISOR_LOGISTICA) bloqueando el lote en cámara de aislamiento y notificando al Director Técnico (DS N° 466).
 
 🛡️ ESCENARIO 3: Guardrail Anti-Alucinación con Producto Inexistente (IE1, IE5)
 👤 [OPERARIO]: Autoriza el despacho de 100 frascos de FANTASMIN 500 MG al Consultorio Maipú.
