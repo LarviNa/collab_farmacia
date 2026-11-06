@@ -503,9 +503,12 @@ class EstadoAgenteBodega(TypedDict):
 # 7. MOTOR DE RAZONAMIENTO Y ORQUESTACIÓN (LANGGRAPH)
 # =====================================================================
 def instanciar_llm_agente():
-    """Instancia Gemini 3.8 Flash con Tool Binding determinista."""
+    """Instancia Gemini con Tool Binding determinista. Soporta gemini-1.5-flash o gemini-2.0-flash."""
+    api_key = os.environ.get("GOOGLE_API_KEY", "").strip().strip("'").strip('"')
+    modelo = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.8-flash",
+        model=modelo,
+        google_api_key=api_key if api_key else None,
         temperature=0.0
     )
     return llm.bind_tools(catalogo_herramientas)
