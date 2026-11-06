@@ -25,13 +25,18 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Annotated, TypedDict, Type, Dict, Any, List, Optional, Set
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+except ImportError:
+    pass
 import pandas as pd
 from pydantic import BaseModel, Field
 
 # Componentes oficiales LangChain y LangGraph
 from langchain_core.tools import BaseTool
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage, BaseMessage
+from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -503,7 +508,17 @@ class EstadoAgenteBodega(TypedDict):
 # 7. MOTOR DE RAZONAMIENTO Y ORQUESTACIÓN (LANGGRAPH)
 # =====================================================================
 def instanciar_llm_agente():
-    """Instancia Gemini 3.8 Flash con Tool Binding determinista."""
+    """Instancia el motor LLM con Tool Binding determinista (soporta Groq gpt-oss-120b o Gemini 3.8 Flash)."""
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip().strip("'").strip('"')
+    if groq_key:
+        modelo_groq = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+        llm = ChatGroq(
+            model=modelo_groq,
+            api_key=groq_key,
+            temperature=0.0
+        )
+        return llm.bind_tools(catalogo_herramientas)
+
     api_key = os.environ.get("GOOGLE_API_KEY", "").strip().strip("'").strip('"')
     modelo = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
     llm = ChatGoogleGenerativeAI(
