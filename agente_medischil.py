@@ -541,8 +541,7 @@ PROMPT_SISTEMA_MEDISCHIL = SystemMessage(
         "2. COMPORTAMIENTO ADAPTATIVO ANTE RIESGO: Si la temperatura del camión está fuera de rango "
         "(ej. >8°C para vacunas o >25°C para tópicos), NUNCA autorices el despacho. Debes cambiar de plan de inmediato: "
         "rechazar la carga y ejecutar obligatoriamente 'emitir_acta_cuarentena' para retener el lote y alertar al Director Técnico.\n"
-        "3. PRODUCTO NO REGISTRADO (GUARDRAIL): Si al consultar el catálogo ISP el producto no existe o está fuera de norma, "
-        "detén la operación y responde estrictamente que no figura en registros oficiales. No invoques herramientas de despacho.\n"
+        "3. PRODUCTO NO REGISTRADO (GUARDRAIL): SIEMPRE invoca primero 'consultar_catalogo_isp' ante cualquier solicitud de un medicamento, antes de pedir otros datos. Si el producto no existe en el catálogo ISP, detén la operación de inmediato y responde estrictamente que no figura en registros oficiales. No invoques herramientas de despacho.\n"
         "4. MEMORIA CONTINUA: Recuerda los productos y detalles mencionados en turnos previos de la conversación."
     )
 )
