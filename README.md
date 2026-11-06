@@ -5,7 +5,8 @@
 > **Integrantes:** Meritxell Arroyo y Matías Barraza  
 > **Organización:** MedisChil S.A. (Distribuidora y Bodega Farmacéutica)  
 > **Caso de Estudio:** Orquestación Autónoma de Almacenamiento, Trazabilidad, Despacho y Seguridad Sanitaria (Registro ISP Chile y DS N° 466)  
-> **Stack Tecnológico:** Python 3.11, LangGraph, LangChain, Google Gemini 3.8 Flash, Pydantic v2, FAISS, Pandas, RapidFuzz
+> **Stack Tecnológico:** Python 3.11, LangGraph, LangChain, Google Gemini 3.8 Flash, Pydantic v2, FAISS, Pandas, RapidFuzz  
+> **Demo en Google Colab:** [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LarviNa/collab_farmacia/blob/main/Demo_Colab_EP2.ipynb)
 
 ---
 
